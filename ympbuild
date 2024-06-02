@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+name='nvidia'
+release='1'
+version='555.42.02'
+url='https://www.nvidia.com'
+description='Nvidia driver'
+email='aliriza.keskin@pardus.org.tr'
+maintainer='aliriza'
+license=('GPLv3')
+source=("https://us.download.nvidia.com/XFree86/Linux-x86_64/${version}/NVIDIA-Linux-x86_64-${version}.run"
+        "https://github.com/NVIDIA/open-gpu-kernel-modules/commit/d594b3f02c8ddc4c8c4c69e4f8ff9cd73556a62b.patch"
+
+)
+depends=(mklinux dkms)
+makedepends=()
+sha256sums=('SKIP'
+            'SKIP')
+group=(nonfree)
+unsafe=1
+uses=(open)
+dontstrip=1
+arch=('x86_64')
+
+cd NVIDIA-Linux-x86_64-$version
+
+
+prepare(){
+    sh ~/NVIDIA-Linux-x86_64-${version}.run --extract-only
+    cd NVIDIA-Linux-x86_64-$version
+    # fix dkms build issue
+    # https://github.com/NVIDIA/open-gpu-kernel-modules/pull/609
+    if ! use open ; then
+        # replace patch file
+        set -i 's/kernel-open/kernel/'
+    fi
+    patch -Np1 -i ../d594b3f02c8ddc4c8c4c69e4f8ff9cd73556a62b.patch
+}
+
+
+# This is part of archlinux:
+# https://gitlab.archlinux.org/archlinux/packaging/packages/nvidia-utils/-/blob/main/PKGBUILD
+
+setup(){
+    cd $(use_opt open kernel-open kernel)
+
+    sed -i "s/__VERSION_STRING/${version}/" dkms.conf
+    sed -i 's/__JOBS//' dkms.conf
+    sed -i 's/__DKMS_MODULES//' dkms.conf
+    sed -i '$iBUILT_MODULE_NAME[0]="nvidia"\
+DEST_MODULE_LOCATION[0]="/kernel/drivers/video"\
+BUILT_MODULE_NAME[1]="nvidia-uvm"\
+DEST_MODULE_LOCATION[1]="/kernel/drivers/video"\
+BUILT_MODULE_NAME[2]="nvidia-modeset"\
+DEST_MODULE_LOCATION[2]="/kernel/drivers/video"\
+BUILT_MODULE_NAME[3]="nvidia-drm"\
+DEST_MODULE_LOCATION[3]="/kernel/drivers/video"\
+BUILT_MODULE_NAME[4]="nvidia-peermem"\
+DEST_MODULE_LOCATION[4]="/kernel/drivers/video"' dkms.conf
+
+    # Gift for linux-rt guys
+    sed -i 's/NV_EXCLUDE_BUILD_MODULES/IGNORE_PREEMPT_RT_PRESENCE=1 NV_EXCLUDE_BUILD_MODULES/' dkms.conf
+
+}
+
+package(){
+    # kernel module
+    install -dm 755 "${DESTDIR}"/usr/src
+    cp -dr --no-preserve='ownership' $(use_opt open kernel-open kernel) "${DESTDIR}/usr/src/nvidia-${version}"
+
+    # license file
+    install -Dt "${DESTDIR}/usr/share/licenses/${nvidia}" -m644 "LICENSE"
+
+    # X driver
+    install -Dm755 nvidia_drv.so "${DESTDIR}/usr/lib/xorg/modules/drivers/nvidia_drv.so"
+
+    # Wayland/GBM
+    install -Dm755 libnvidia-egl-gbm.so.1* -t "${DESTDIR}/usr/lib/"
+    install -Dm644 15_nvidia_gbm.json "${DESTDIR}/usr/share/egl/egl_external_platform.d/15_nvidia_gbm.json"
+    mkdir -p "${DESTDIR}/usr/lib/gbm"
+    ln -sr "${DESTDIR}/usr/lib/libnvidia-allocator.so.${version}" "${DESTDIR}/usr/lib/gbm/nvidia-drm_gbm.so"
+
+    # firmware
+    install -Dm644 -t "${DESTDIR}/usr/lib/firmware/nvidia/${version}/" firmware/*.bin
+
+    # OpenGL libraries
+    install -Dm755 "libEGL_nvidia.so.${version}" "${DESTDIR}/usr/lib/libEGL_nvidia.so.${version}"
+    install -Dm755 "libGLESv1_CM_nvidia.so.${version}" "${DESTDIR}/usr/lib/libGLESv1_CM_nvidia.so.${version}"
+    install -Dm755 "libGLESv2_nvidia.so.${version}" "${DESTDIR}/usr/lib/libGLESv2_nvidia.so.${version}"
+    install -Dm644 "10_nvidia.json" "${DESTDIR}/usr/share/glvnd/egl_vendor.d/10_nvidia.json"
+
+    # OpenGL core library
+    install -Dm755 "libnvidia-glcore.so.${version}" "${DESTDIR}/usr/lib/libnvidia-glcore.so.${version}"
+    install -Dm755 "libnvidia-eglcore.so.${version}" "${DESTDIR}/usr/lib/libnvidia-eglcore.so.${version}"
+    install -Dm755 "libnvidia-glsi.so.${version}" "${DESTDIR}/usr/lib/libnvidia-glsi.so.${version}"
+
+    # misc
+    install -Dm755 "libnvidia-api.so.1" "${DESTDIR}/usr/lib/libnvidia-api.so.1"
+    install -Dm755 "libnvidia-fbc.so.${version}" "${DESTDIR}/usr/lib/libnvidia-fbc.so.${version}"
+    install -Dm755 "libnvidia-encode.so.${version}" "${DESTDIR}/usr/lib/libnvidia-encode.so.${version}"
+    install -Dm755 "libnvidia-cfg.so.${version}" "${DESTDIR}/usr/lib/libnvidia-cfg.so.${version}"
+    install -Dm755 "libnvidia-ml.so.${version}" "${DESTDIR}/usr/lib/libnvidia-ml.so.${version}"
+    install -Dm755 "libnvidia-glvkspirv.so.${version}" "${DESTDIR}/usr/lib/libnvidia-glvkspirv.so.${version}"
+    install -Dm755 "libnvidia-allocator.so.${version}" "${DESTDIR}/usr/lib/libnvidia-allocator.so.${version}"
+    install -Dm755 "libnvidia-gpucomp.so.${version}" "${DESTDIR}/usr/lib/libnvidia-gpucomp.so.${version}"
+
+    # Vulkan ICD
+    install -Dm644 "nvidia_icd.json" "${DESTDIR}/usr/share/vulkan/icd.d/nvidia_icd.json"
+    install -Dm644 "nvidia_layers.json" "${DESTDIR}/usr/share/vulkan/implicit_layer.d/nvidia_layers.json"
+
+    # VDPAU
+    install -Dm755 "libvdpau_nvidia.so.${version}" "${DESTDIR}/usr/lib/vdpau/libvdpau_nvidia.so.${version}"
+
+    # nvidia-tls library
+    install -Dm755 "libnvidia-tls.so.${version}" "${DESTDIR}/usr/lib/libnvidia-tls.so.${version}"
+
+    # CUDA
+    install -Dm755 "libcuda.so.${version}" "${DESTDIR}/usr/lib/libcuda.so.${version}"
+    install -Dm755 "libnvcuvid.so.${version}" "${DESTDIR}/usr/lib/libnvcuvid.so.${version}"
+    install -Dm755 "libcudadebugger.so.${version}" "${DESTDIR}/usr/lib/libcudadebugger.so.${version}"
+
+    # NVVM Compiler library loaded by the CUDA driver to do JIT link-time-optimization
+    install -Dm644 "libnvidia-nvvm.so.${version}" "${DESTDIR}/usr/lib/libnvidia-nvvm.so.${version}"
+
+    # PTX JIT Compiler (Parallel Thread Execution (PTX) is a pseudo-assembly language for CUDA)
+    install -Dm755 "libnvidia-ptxjitcompiler.so.${version}" "${DESTDIR}/usr/lib/libnvidia-ptxjitcompiler.so.${version}"
+
+    # raytracing
+    install -Dm755 "nvoptix.bin" "${DESTDIR}/usr/share/nvidia/nvoptix.bin"
+    install -Dm755 "libnvoptix.so.${version}" "${DESTDIR}/usr/lib/libnvoptix.so.${version}"
+    install -Dm755 "libnvidia-rtcore.so.${version}" "${DESTDIR}/usr/lib/libnvidia-rtcore.so.${version}"
+
+    # NGX
+    install -Dm755 nvidia-ngx-updater "${DESTDIR}/usr/bin/nvidia-ngx-updater"
+    install -Dm755 "libnvidia-ngx.so.${version}" "${DESTDIR}/usr/lib/libnvidia-ngx.so.${version}"
+    install -Dm755 _nvngx.dll "${DESTDIR}/usr/lib/nvidia/wine/_nvngx.dll"
+    install -Dm755 nvngx.dll "${DESTDIR}/usr/lib/nvidia/wine/nvngx.dll"
+
+    # Optical flow
+    install -Dm755 "libnvidia-opticalflow.so.${version}" "${DESTDIR}/usr/lib/libnvidia-opticalflow.so.${version}"
+
+    # Cryptography library wrapper
+    ls libnvidia-pkcs*
+    ls *openssl*
+    install -Dm755 "libnvidia-pkcs11.so.${version}" "${DESTDIR}/usr/lib/libnvidia-pkcs11.so.${version}"
+    install -Dm755 "libnvidia-pkcs11-openssl3.so.${version}" "${DESTDIR}/usr/lib/libnvidia-pkcs11-openssl3.so.${version}"
+
+    # Debug
+    install -Dm755 nvidia-debugdump "${DESTDIR}/usr/bin/nvidia-debugdump"
+
+    # nvidia-xconfig
+    install -Dm755 nvidia-xconfig "${DESTDIR}/usr/bin/nvidia-xconfig"
+    install -Dm644 nvidia-xconfig.1.gz "${DESTDIR}/usr/share/man/man1/nvidia-xconfig.1.gz"
+
+    # nvidia-bug-report
+    install -Dm755 nvidia-bug-report.sh "${DESTDIR}/usr/bin/nvidia-bug-report.sh"
+
+    # nvidia-smi
+    install -Dm755 nvidia-smi "${DESTDIR}/usr/bin/nvidia-smi"
+    install -Dm644 nvidia-smi.1.gz "${DESTDIR}/usr/share/man/man1/nvidia-smi.1.gz"
+
+    # nvidia-cuda-mps
+    install -Dm755 nvidia-cuda-mps-server "${DESTDIR}/usr/bin/nvidia-cuda-mps-server"
+    install -Dm755 nvidia-cuda-mps-control "${DESTDIR}/usr/bin/nvidia-cuda-mps-control"
+    install -Dm644 nvidia-cuda-mps-control.1.gz "${DESTDIR}/usr/share/man/man1/nvidia-cuda-mps-control.1.gz"
+
+    # nvidia-modprobe
+    # This should be removed if nvidia fixed their uvm module!
+    install -Dm4755 nvidia-modprobe "${DESTDIR}/usr/bin/nvidia-modprobe"
+    install -Dm644 nvidia-modprobe.1.gz "${DESTDIR}/usr/share/man/man1/nvidia-modprobe.1.gz"
+
+    # nvidia-persistenced
+    install -Dm755 nvidia-persistenced "${DESTDIR}/usr/bin/nvidia-persistenced"
+    install -Dm644 nvidia-persistenced.1.gz "${DESTDIR}/usr/share/man/man1/nvidia-persistenced.1.gz"
+
+    # application profiles
+    install -Dm644 nvidia-application-profiles-${version}-rc "${DESTDIR}/usr/share/nvidia/nvidia-application-profiles-${version}-rc"
+    install -Dm644 nvidia-application-profiles-${version}-key-documentation "${DESTDIR}/usr/share/nvidia/nvidia-application-profiles-${version}-key-documentation"
+
+    install -Dm644 LICENSE "${DESTDIR}/usr/share/licenses/nvidia-utils/LICENSE"
+    install -Dm644 README.txt "${DESTDIR}/usr/share/doc/nvidia/README"
+    install -Dm644 NVIDIA_Changelog "${DESTDIR}/usr/share/doc/nvidia/NVIDIA_Changelog"
+    cp -r html "${DESTDIR}/usr/share/doc/nvidia/"
+    ln -s nvidia "${DESTDIR}/usr/share/doc/nvidia-utils"
+
+    echo "blacklist nouveau" | install -Dm644 /dev/stdin "${DESTDIR}/usr/lib/modprobe.d/${pkgname}.conf"
+    echo "nvidia-uvm" | install -Dm644 /dev/stdin "${DESTDIR}/usr/lib/modules-load.d/${pkgname}.conf"
+
+}

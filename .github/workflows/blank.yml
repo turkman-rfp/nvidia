@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+
+  workflow_dispatch:
+
+jobs:
+    compile:
+        name: Update source packages
+        runs-on: ubuntu-latest
+        steps:
+          - name: Check out the repo
+            uses: actions/checkout@v2
+          - name: Run the build process with Docker
+            uses: addnab/docker-run-action@v3
+            with:
+                image: registry.gitlab.com/turkman/devel/assets/docker-images
+                options: -v ${{ github.workspace }}:/root -v /output:/root/output
+                run: |
+                    mkdir -p /tmp/ymp-build/
+                    ymp repo --update --ignore-gpg
+                    ymp it bash git build-base --no-emerge
+                    ymp build --unsafe https://github.com/turkman-rfp/libreoffice.git --output=/root/output
+
+          - uses: "marvinpinto/action-automatic-releases@latest"
+            with:
+                repo_token: "${{ secrets.GITHUB_TOKEN }}"
+                automatic_release_tag: "current"
+                prerelease: false
+                title: "Latest release"
+                files: |
+                  /output/*.ymp
+
