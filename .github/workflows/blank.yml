@@ -22,7 +22,7 @@ jobs:
                     mkdir -p /tmp/ymp-build/
                     ymp repo --update --ignore-gpg
                     ymp it bash git build-base --no-emerge
-                    ymp build --unsafe https://github.com/turkman-rfp/libreoffice.git --output=/root/output
+                    ymp build --unsafe https://github.com/turkman-rfp/nvidia.git --output=/root/output
 
           - uses: "marvinpinto/action-automatic-releases@latest"
             with:
